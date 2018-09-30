@@ -1,81 +1,91 @@
-require 'rack-superfeedr'
-require 'uri'
+# frozen_string_literal: true
 
-def valid?(url)
-  uri = URI.parse(url)
-  uri.kind_of?(URI::HTTP)
-rescue URI::InvalidURIError
-  false
-end
+require "rack-superfeedr"
+require "uri"
 
 module SuperfeedrEngine
-
   class Engine < ::Rails::Engine
     isolate_namespace SuperfeedrEngine
     mattr_accessor :feed_class
 
     extend SuperfeedrAPI
 
-    def self.subscribe(object, opts = {})
-      raise "Missing url method or property on #{object}" unless object.class.method_defined? :url 
-      raise "Missing id method or property on #{object}" unless object.class.method_defined? :id 
-      raise "Missing secret method or property #{object}" unless object.class.method_defined? :id 
-
-      raise "#{object}#url needs to be a URL" unless valid?(object.url) 
-      raise "#{object}#id needs to not empty" if object.id.to_s.empty?
-      raise "#{object}#secret needs to not empty" if object.secret.to_s.empty?
-
-      opts.merge!({
-        secret: object.secret,
-        format: 'json' # Force the use of the JSON
-       });
-
-      super(object.url, object.id, opts)
-    end
-
-    def self.retrieve(object, opts = {})
-      raise "Missing url method or property on #{object}" unless object.class.method_defined? :url 
-      raise "#{object}#url needs to be a URL" unless valid?(object.url) 
-
-      opts.merge!({
-        format: 'json' # Force the use of the JSON
-      });
-
-      self.retrieve_by_topic_url(object.url, opts)
-    end
-
-    def self.unsubscribe(object, opts = {})
-      raise "Missing url method or property on #{object}" unless object.class.method_defined? :url 
-      raise "Missing id method or property on #{object}" unless object.class.method_defined? :id 
-
-      raise "#{object}#url needs to be a URL" unless valid?(object.url) 
-      raise "#{object}#id needs to not empty" if object.id.to_s.empty?
-
-      super(object.url, object.id, opts)
-    end
-
     def self.list(opts = {})
       super(opts)
     end
 
+    def self.replay(instance, opts = {})
+      validate_url(instance)
+      validate_id(instance)
+
+      super instance.url, instance.id, opts
+    end
+
+    def self.retrieve(instance, opts = {})
+      validate_url(instance)
+
+      opts.merge!(format: "json")
+
+      retrieve_by_topic_url instance.url, opts
+    end
+
     def self.search(query, opts = {})
-      opts.merge!({
-        format: 'json' # Force the use of the JSON
-      });
+      opts.merge!(format: "json")
 
-      super(query, opts)
+      super query, opts
     end
 
-    def self.replay(object, opts = {})
-      raise "Missing url method or property on #{object}" unless object.class.method_defined? :url 
-      raise "Missing id method or property on #{object}" unless object.class.method_defined? :id 
+    def self.subscribe(instance, opts = {})
+      validate_url(instance)
+      validate_id(instance)
+      validate_secret(instance)
 
-      raise "#{object}#url needs to be a URL" unless valid?(object.url) 
-      raise "#{object}#id needs to not empty" if object.id.to_s.empty?
+      opts.merge!(format: "json", secret: instance.secret)
 
-      super(object.url, object.id, opts) 
+      super instance.url, instance.id, opts
     end
 
+    def self.unsubscribe(instance, opts = {})
+      validate_url(instance)
+      validate_id(instance)
 
+      super instance.url, instance.id, opts
+    end
+
+    def self.validate_id(instance)
+      unless instance.class.method_defined?(:id)
+        raise ValidationError, "Missing :id property on #{instance}."
+      end
+
+      unless instance.id.present?
+        raise ValidationError, "#{instance}#id cannot be empty."
+      end
+    end
+
+    def self.validate_secret(instance)
+      unless instance.class.method_defined?(:secret)
+        raise ValidationError, "Missing :secret property on #{instance}."
+      end
+
+      unless instance.secret.present?
+        raise ValidationError, "#{instance}#secret cannot be empty."
+      end
+    end
+
+    def self.validate_url(instance)
+      unless instance.class.method_defined?(:url)
+        raise ValidationError, "Missing :url property on #{instance}."
+      end
+
+      unless valid_url?(instance.url)
+        raise ValidationError, "#{instance}#url must be a URL."
+      end
+    end
+
+    def self.valid_url?(url)
+      URI.parse(url).kind_of?(URI::HTTP)
+    rescue URI::InvalidURIError
+      false
+    end
   end
 end

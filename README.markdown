@@ -1,85 +1,102 @@
 # SuperfeedrEngine
 
-This Rails engine let's you integrate [Superfeedr](https://superfeedr.com) smoothly into any Rails 4+ application (not tested with Rails 3.X). It lets you consume RSS feeds in your Rails application using Superfeedr's [PubSubHubbub](http://documentation.superfeedr.com/subscribers.html#webhooks) API.
+This Rails engine lets you integrate [Superfeedr](https://superfeedr.com) smoothly into your application. It lets you consume RSS feeds using Superfeedr's [PubSubHubbub](http://documentation.superfeedr.com/subscribers.html#webhooks) API.
 
-*Warning*: At this point, this engine is only to be used with [XML feeds subscriptions](http://documentation.superfeedr.com/subscribers.html#xml-based-feeds).
+The engine relies on the [Rack Superfeedr](https://rubygems.org/gems/rack-superfeedr) library for subscribing, unsubscribing, listing and retrieving subscriptions. It creates webhook that yields notifications to your feed class.
 
-The engine relies on the [Rack Superfeedr](https://rubygems.org/gems/rack-superfeedr) library for subscriptions, unsubscriptions, retrieval and listing of subscriptions. It creates a route used for webhooks and yields notifications.
+Most of the gory details are handled for you: building webhook URLs, using secrets and handling signatures verification. All you need to do is build a class to store your feeds and handle notifications.
 
-Gory details such as building webhook URLs, using secrets and handling signatures verifications are performed by default by this engine.
+## Compatibility
+
+This engine is only to be used with [XML feeds subscriptions](http://documentation.superfeedr.com/subscribers.html#xml-based-feeds).
+
+It is built and tested for Rails 4.0-Rails 5.2
 
 ## How-To
 
-### Install
+### Install this gem
 
 In your Gemfile, add `gem 'superfeedr_engine'` and run `bundle update`.
 
+### Build your feed class
+
+SuperfeedrEngine expects you to configure a class, usually an ActiveRecord model, to store your feeds and receive notifications from the webhook.
+
+#### Add the attributes expected by the webhook:
+
+* `url`: should be the main feed url
+* `id`: a unique id (string) for each feed (can be the primary index in your relational table)
+* `secret`: a secret which should never change and be unique for each feed. It must be hard to guess. (An MD5 or SHA1 string works best.)
+
+#### Write your `:notified` method
+
+Your class also must have a `:notified` method which will be called by the engine when new content is received by the webhook. You'll probably want to save the content of this notification to your database.
+
+The method can have 1, 2 or 3 arguments:
+
+* The first (required) argument is Ruby hash with the parsed content of the notification.
+* The second (optional) argument is the raw text notification.
+* The third (optional) argument is the raw request object of the notification.
+
+By default, this engine will subscribe to Superfeedr using the `JSON` format. Please check our [JSON schema](http://documentation.superfeedr.com/schema.html#json) for more details.
+
 ### Configure
 
-Add a configuration file: `config/initializers/superfeedr_engine.rb` with the following:
+Create an initializer (`config/initializers/superfeedr_engine.rb`) with the following:
 
-```ruby
-SuperfeedrEngine::Engine.feed_class = "Feed" # Use the class you use for feeds. (Its name as a string)
-# This class needs to have the following attributes/methods:
-# * url: should be the main feed url
-# * id: a unique id (string) for each feed (can be the primary index in your relational table)
-# * secret: a secret which should never change and be unique for each feed. It must be hard to guess. (a md5 or sha1 string works fine!)
+    # Use the class you use for feeds. (Its name as a string)
+    SuperfeedrEngine::Engine.feed_class = "Feed"
 
-SuperfeedrEngine::Engine.base_path = "/superfeedr_engine/" # Base path for the engine don't forget the trailing /
+    # Base path for the engine - don't forget the trailing "/"
+    SuperfeedrEngine::Engine.base_path = "/superfeedr_engine/"
 
-SuperfeedrEngine::Engine.host = "5ea1e5ed83bf5555.a.passageway.io" # Your hostname (no http). Used for webhooks!
-# When debugging, you can use tools like https://www.runscope.com/docs/passageway to
-# share your local web server with superfeedr's API via a public URL
+    # Superfeedr username.
+    SuperfeedrEngine::Engine.login = "demo"
 
-SuperfeedrEngine::Engine.login = "demo" # Superfeedr username
+    # A valid Superfeedr token. Make sure it has the associated rights you need (subscribe, unsubscribe, retrieve, list).
+    SuperfeedrEngine::Engine.password = "8ac38a53cc32f71a6445e880f76fc865"
 
-SuperfeedrEngine::Engine.password = "8ac38a53cc32f71a6445e880f76fc865" # Token value
-# make sure it has the associated rights you need (subscribe,unsubscribe,retrieve,list)
+    # Your hostname (no protocol - just the URL). Used for webhooks!
+    # This will be different for each environment and can be read from an environment variable or an
+    # environment-specific config file.
+    SuperfeedrEngine::Engine.host = "www.myapp.com"
+    # OR
+    SuperfeedrEngine::Engine.host = "5ea1e5ed83bf5555.a.passageway.io"
 
-SuperfeedrEngine::Engine.scheme = "http" # Can use HTTPS or a different port with SuperfeedrEngine::Engine.port (Defaults to 80.  If you use https, set to 443 or, specify a custom port number if using different port.)
-```
+    # Protocol/port for your webserver
+    SuperfeedrEngine::Engine.scheme = "https"
+    # OR
+    SuperfeedrEngine::Engine.scheme = "http"
+    # OR (custom port)
+    SuperfeedrEngine::Engine.scheme = "http"
+    SuperfeedrEngine::Engine.port = 12345
 
 ### Mount
 
 Update routes in `config/routes.rb` to mount the Engine.
 
-```ruby
-mount SuperfeedrEngine::Engine => SuperfeedrEngine::Engine.base_path # Use the same to set path in the engine initialization!
-```
+    # This path is configured in your initializer.
+    mount SuperfeedrEngine::Engine => SuperfeedrEngine::Engine.base_path
 
-### Profit! (not really, you should start actually using the engine!)
+### Profit! (Not really - you should actually just start using the engine!)
 
-You can call perform the following calls:
+You can perform the following calls:
 
-```ruby
-body, ok = SuperfeedrEngine::Engine.subscribe(feed, {:retrieve => true}) # Will subscribe your application to the feed object and will retrieve its past content yielded as a JSON string in body.
+    # Will subscribe your application to the feed object and will retrieve its past content yielded as a JSON string in body.
+    body, ok = SuperfeedrEngine::Engine.subscribe(feed, {:retrieve => true})
 
-body, ok = SuperfeedrEngine::Engine.retrieve(feed) # Will retrieve the past content of a feed (but you must be subscribed to it first)
+    # Will retrieve the past content of a feed (but you must be subscribed to it first)
+    body, ok = SuperfeedrEngine::Engine.retrieve(feed)
 
-body, ok = SuperfeedrEngine::Engine.unsubscribe(feed) # Will stop receiving notifications when a feed changes.
-```
-
-Finally, make sure your `SuperfeedrEngine::Engine.feed_class` has a `notified` method which will be called by the engine when new content is received by your application. You'll probably want to save the content of this notification.
-
-The method can have 1, 2 or 3 arguments. The first argument will be a Ruby hash with the content of the notification. The 2nd (optional) argument is the raw text notification. The 3rd one (optional as well) will be the request object for the notifcation.
-
-By default, this engine will subscribe to Superfeedr using the `JSON` format. Please check our [JSON schema](http://documentation.superfeedr.com/schema.html#json) for more details.
-
-
-Please check our example Rails application, deployed on  and whose code can be found in `example`
-
+    # Will stop receiving notifications when a feed changes.
+    body, ok = SuperfeedrEngine::Engine.unsubscribe(feed)
 
 ### Development note:
 
-When develiping your application you probably use localhost... which means that your Rails application is not reachable by our servers and we won't be able to send you notifications.
+You probably use localhost in your development environment, which means that your Rails application is not reachable by Superfeedr's servers and won't be able to receive webhook notifications.
 
-To handle this, feel free to use any of these tools which expose your Rails application (on port 3000) to the web using temporary URLs:
+To overcome this and fully test your integration with this engine before deployment, consider one of the following tools to expose your dev environment to the web using temporary URLs:
 
 - [passageway](https://www.runscope.com/docs/passageway)
 - [forwardhq](https://forwardhq.com/)
 - [ngrok](https://ngrok.com/)
-
-
-
-
-
