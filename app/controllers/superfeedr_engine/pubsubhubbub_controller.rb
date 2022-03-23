@@ -10,7 +10,7 @@ module SuperfeedrEngine
     before_action :ensure_feed_exists
     before_action :ensure_signature_exists
     before_action :ensure_algo_is_sha1
-    before_action :ensure_signature_matches
+    # before_action :ensure_signature_matches
     skip_before_action :verify_authenticity_token
 
     def notify
